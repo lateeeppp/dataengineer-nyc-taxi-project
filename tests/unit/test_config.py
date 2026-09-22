@@ -22,5 +22,7 @@ def test_get_source_trip_url():
 def test_get_bronze_trip_s3_key():
     cfg = PipelineConfig()
     key = cfg.get_bronze_trip_s3_key(year=2024, month=1)
-    expected = "bronze/nyc_taxi/yellow/year=2024/month=01/yellow_tripdata_2024-01.parquet"
+    expected = (
+        "bronze/nyc_taxi/yellow/year=2024/month=01/yellow_tripdata_2024-01.parquet"
+    )
     assert key == expected

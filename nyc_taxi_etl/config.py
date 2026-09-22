@@ -3,8 +3,8 @@ nyc_taxi_etl.config
 Konfigurasi terpusat untuk pipeline NYC Yellow Taxi ETL.
 """
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -14,9 +14,7 @@ class PipelineConfig:
     s3_bucket: str = os.getenv("S3_BUCKET_NAME", "nyc-taxi-bucket-lathief")
 
     # Data Source URLs
-    taxi_parquet_url_template: str = (
-        "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year:04d}-{month:02d}.parquet"
-    )
+    taxi_parquet_url_template: str = "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year:04d}-{month:02d}.parquet"
     zone_lookup_csv_url: str = (
         "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
     )
