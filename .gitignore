@@ -1,2 +1,31 @@
+# ========== CUSTOM ==========
+
 keys/
 docs/
+
+# ========== END CUSTOM ==========
+
+# Virtual Environments & Packaging
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Credentials & Secrets
+keys/
+*.csv
+.env
+.env.*
+!.env.example
+
+# Airflow Runtime
+airflow-nyc-taxi/logs/
+airflow-nyc-taxi/plugins/
+airflow-nyc-taxi/config/
+
+# Testing & Quality
+.pytest_cache/
+.ruff_cache/
+.coverage
