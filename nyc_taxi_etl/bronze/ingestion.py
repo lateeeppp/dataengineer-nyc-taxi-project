@@ -3,16 +3,16 @@ nyc_taxi_etl.bronze.ingestion
 Modul untuk mengambil raw data NYC Taxi & Lookup CSV dan menyimpannya ke S3 Bronze.
 """
 
-from datetime import UTC, datetime
 import hashlib
 import io
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import boto3
-from botocore.config import Config
 import requests
+from botocore.config import Config
 
 from nyc_taxi_etl.config import config
 
@@ -30,7 +30,9 @@ def get_s3_client() -> Any:
     return boto3.client("s3", region_name=config.aws_region, config=s3_config)
 
 
-def stream_download_and_hash(url: str, chunk_size: int = 8 * 1024 * 1024) -> tuple[io.BytesIO, str, int]:
+def stream_download_and_hash(
+    url: str, chunk_size: int = 8 * 1024 * 1024
+) -> tuple[io.BytesIO, str, int]:
     """Mengunduh data secara streaming, menghitung SHA-256 hash, dan mengembalikan in-memory buffer."""
     logger.info(f"Mengunduh file dari: {url}")
     response = requests.get(url, stream=True, timeout=60)
@@ -111,7 +113,9 @@ def ingest_yellow_taxi_monthly(
         "ingested_at_utc": datetime.now(UTC).isoformat(),
         "status": "SUCCESS",
     }
-    save_manifest_to_s3(manifest_data, config.s3_bucket, manifest_key, s3_client=s3_client)
+    save_manifest_to_s3(
+        manifest_data, config.s3_bucket, manifest_key, s3_client=s3_client
+    )
 
     return manifest_data
 
@@ -135,6 +139,8 @@ def ingest_taxi_zone_lookup(s3_client: Any | None = None) -> dict[str, Any]:
         "ingested_at_utc": datetime.now(UTC).isoformat(),
         "status": "SUCCESS",
     }
-    save_manifest_to_s3(manifest_data, config.s3_bucket, manifest_key, s3_client=s3_client)
+    save_manifest_to_s3(
+        manifest_data, config.s3_bucket, manifest_key, s3_client=s3_client
+    )
 
     return manifest_data
