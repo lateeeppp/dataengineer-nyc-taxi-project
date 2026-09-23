@@ -192,8 +192,8 @@ ORDER BY f.source_year, f.source_month;
 
 ```bash
 # Clone repository
-git clone https://github.com/[YOUR_GITHUB_USERNAME]/[YOUR_REPO_NAME].git
-cd [YOUR_REPO_NAME]
+git clone https://github.com/lateeeppp/dataengineer-nyc-taxi-project.git
+cd dataengineer-nyc-taxi-project
 
 # Install dependensi dan jalankan linter
 uv sync
