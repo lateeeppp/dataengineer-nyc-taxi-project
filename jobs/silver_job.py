@@ -10,6 +10,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from pyspark.sql import SparkSession
+
 from nyc_taxi_etl.config import config
 from nyc_taxi_etl.silver.standardization import (
     enrich_silver_lineage,
@@ -17,7 +19,6 @@ from nyc_taxi_etl.silver.standardization import (
     standardize_yellow_taxi_columns,
     transform_taxi_zone_lookup,
 )
-from pyspark.sql import SparkSession
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("silver_job")
