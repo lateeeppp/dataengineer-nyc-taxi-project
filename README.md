@@ -97,6 +97,12 @@ Berikut adalah beberapa tantangan teknis dan keputusan desain yang diterapkan se
 - **Konteks:** Penjadwalan pipeline bulanan dapat memicu eksekusi untuk periode data yang belum dirilis oleh NYC TLC, menghasilkan respons HTTP 403 atau 404 dari CloudFront.
 - **Solusi:** Menangani respons HTTP 403/404 dengan memicu `AirflowSkipException`. Task unduhan beserta downstream task (Glue dan Redshift) akan otomatis berstatus **Skipped**, sehingga pipeline tidak mengalami failed state yang tidak perlu dan menghindari pemakaian resource komputasi tambahan.
 
+### 5. Penegakan Data Contract: Zero-NULL Policy di PySpark vs DDL Redshift
+
+- **Konteks:** Menghindari kegagalan kalkulasi pada query agregasi analitik (seperti perhitungan pendapatan, tip rate, dan durasi) akibat adanya nilai NULL pada data mentah argo taksi.
+- **Analisis & Keputusan:** Klausul `DEFAULT` pada DDL SQL Redshift hanya dievaluasi pada operasi `INSERT` individual, bukan saat pemuatan data massal via perintah `COPY` dari file Parquet.
+- **Solusi:** Memindahkan seluruh logika validasi dan imputasi nilai default (`NULL_IMPUTATION_DEFAULTS`) ke tahap pemrosesan hulu di PySpark (Silver & Gold). Dengan pendekatan ini, skema DDL tabel fakta di Redshift cukup menegakkan kontrak data menggunakan constraint `NOT NULL` secara murni, memastikan seluruh data yang masuk ke data warehouse bersih dan konsisten untuk kebutuhan analitik.
+
 ---
 
 ## Validasi Query & Hasil Analitik
