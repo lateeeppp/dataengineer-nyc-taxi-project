@@ -11,75 +11,75 @@
 
 ---
 
-## 📌 Executive Summary
+## Executive Summary
 
-Proyek ini adalah implementasi pipeline data _production-grade_ berskala enterprise yang mengonsumsi **jutaan data transaksi NYC Yellow Taxi** dari sumber publik (NYC TLC), membersihkan dan memvalidasi data menggunakan **Apache Spark 4.1 di AWS Glue 6.0**, dan memodelkannya ke dalam **Kimball Star Schema di Amazon Redshift Serverless**.
+Proyek ini mengimplementasikan data pipeline berbasis cloud untuk memproses data transaksi NYC Yellow Taxi dari sumber publik NYC TLC. Pembersihan, validasi, dan transformasi data dilakukan menggunakan Apache Spark 4.1 di AWS Glue 6.0, kemudian dimodelkan ke dalam Kimball Star Schema pada Amazon Redshift Serverless.
 
-Seluruh siklus hidup pipeline diorkestrasi secara otomatis oleh **Apache Airflow**, dirancang dengan prinsip **100% Idempotent** (aman dijalankan ulang tanpa data duplikat), serta dilengkapi **Quality Gate Circuit Breaker** untuk mencegah masuknya data anomali ke data warehouse.
+Orkestrasi pipeline dikelola secara otomatis menggunakan Apache Airflow dengan mekanisme idempotent untuk mencegah duplikasi data saat backfill atau eksekusi ulang, serta dilengkapi pemeriksaan kualitas data sebelum dimuat ke data warehouse.
 
-> **Key Metrics:**
+> **Ringkasan Teknis:**
 >
-> - **Dataset Skala Penuh:** Telah diuji memproses multi-partisi lintas tahun (`2024-01`, `2024-02`, dan `2025-01`) dengan total **>8,8 juta baris data**.
-> - **SLA Pipeline:** Eksekusi end-to-end per partisi bulanan selesai dalam kurun waktu **~4 menit 20 detik** (dari download, Glue Spark cleaning, quality gate, Glue Spark gold modeling, hingga Redshift `COPY`).
-> - **Data Quality:** Menegakkan _Zero-NULL Policy_ pada metrik finansial dan kunci dimensi, serta mengisolasi anomali sensor taksi secara empiris.
+> - **Volume Data:** Telah diuji memproses data multi-partisi bulanan (`2024-01`, `2024-02`, dan `2025-01`) dengan total lebih dari 8,8 juta baris data.
+> - **Waktu Eksekusi Pipeline:** Rata-rata durasi end-to-end per partisi bulanan sekitar 4 menit 20 detik (mencakup ingestion, Glue cleaning, validasi, Glue gold modeling, hingga Redshift `COPY`).
+> - **Kualitas Data:** Penerapan validasi nilai non-null pada atribut esensial dan pembersihan anomali nilai numerik seperti durasi atau tarif negatif.
 
 ---
 
-## 🏗️ Arsitektur Sistem (Medallion Architecture)
+## Arsitektur Sistem (Medallion Architecture)
 
 <figure align="center">
-  <img src="img/architecture.png" alt"Arsitektur">
+  <img src="img/architecture.png" alt="Arsitektur Sistem">
   <figcaption>Gambar 1. Arsitektur ETL Taxi Trip Data Pipeline</figcaption>
 </figure>
 
 ---
 
-## 📐 Data Modeling: Kimball Star Schema
+## Data Modeling (Kimball Star Schema)
 
-Deliverable utama dirancang untuk melayani query analitik ad-hoc dan reporting BI dengan latensi rendah.
+Model data dirancang untuk mendukung kebutuhan query analitik dan visualisasi BI dengan latensi rendah.
 
 <figure align="center">
-  <img src="img/star_schema.png" alt"StarSchema">
+  <img src="img/star_schema.png" alt="Star Schema">
   <figcaption>Gambar 2. Star Schema</figcaption>
 </figure>
 
 ### Karakteristik Model Data:
 
-- **Fact Table Grain:** Tepat satu baris merepresentasikan **satu perjalanan Yellow Taxi valid**.
-- **Role-Playing Dimension:** `dim_date` berperan ganda sebagai dimensi waktu penjemputan (`pickup_date_key`) dan penurunan (`dropoff_date_key`).
-- **Unknown Key (`Key = 0`) Protection:** Seluruh dimensi memiliki baris bootstrap `Key = 0` (`Unknown`). Jika terjadi anomali kode transaksi di lapangan, data fakta tetap termuat tanpa merusak integritas relasional data warehouse.
-- **SCD Strategy:**
-  - `dim_date`: **SCD Type 0** (Statis, pre-generated 2020–2030).
+- **Fact Table Grain:** Satu baris merepresentasikan satu transaksi perjalanan Yellow Taxi yang valid.
+- **Role-Playing Dimension:** Tabel `dim_date` digunakan sebagai referensi ganda untuk waktu penjemputan (`pickup_date_key`) dan waktu penurunan (`dropoff_date_key`).
+- **Unknown Record (`Key = 0`):** Setiap tabel dimensi menyertakan record bootstrap `Key = 0` (`Unknown`) untuk menangani transaksi dengan referensi tidak dikenal tanpa membatalkan proses pemuatan data.
+- **Strategi SCD (Slowly Changing Dimensions):**
+  - `dim_date`: **SCD Type 0** (Statis, rentang 2020–2030).
   - `dim_location`, `dim_vendor`, `dim_rate_code`, `dim_payment_type`: **SCD Type 1** (Overwrite).
 
 ---
 
-## 💡 Engineering Challenges & Technical Insights
+## Tantangan Teknis & Keputusan Desain
 
-Berikut adalah beberapa keputusan desain dan _debugging insights_ nyata yang diselesaikan selama membangun sistem ini:
+Berikut adalah beberapa tantangan teknis dan keputusan desain yang diterapkan selama pengembangan pipeline:
 
-### 1. Perangkap `IDENTITY(1, 1)` pada Distributed MPP Redshift
+### 1. Penanganan Surrogate Key pada Arsitektur Terdistribusi Redshift
 
-- **Masalah:** Saat pertama kali memuat data dimensi lokasi (`dim_location`) menggunakan `IDENTITY(1, 1)`, hasil query `JOIN` di tabel fakta menghasilkan `loc.borough = NULL` dan `loc.zone = NULL` untuk 99.9% data perjalanan.
-- **Akar Masalah:** Di arsitektur terdistribusi Redshift, generator `IDENTITY` mengalokasikan nomor urut per-_compute slice_ dalam blok terpisah (misal: 1..1000, 1001..2000, dst.), bukan urut kontigu 1, 2, 3.. 265. Akibatnya, `location_key` acak dan tidak cocok dengan `pu_location_id` asli dari argo taksi.
+- **Konteks:** Pembuatan kunci surrogate pada tabel dimensi `dim_location` menggunakan `IDENTITY(1, 1)` menghasilkan ketidaksesuaian data ketika di-join dengan tabel fakta.
+- **Penyebab:** Pada arsitektur terdistribusi Redshift, generator `IDENTITY` mengalokasikan nomor urut per-slice komputasi dalam rentang terpisah, bukan urutan kontigu 1..265. Hal ini menyebabkan nilai `location_key` berbeda dari `location_id` referensi argo taksi.
 - **Solusi:**
-  - Untuk **Tabel Dimensi Parent**: Gunakan _Deterministic Natural Integer Key_ (`location_key = location_id`).
-  - Untuk **Tabel Fakta (`trip_key`)**: Tetap gunakan `BIGINT IDENTITY(1, 1)` karena fungsinya murni sebagai surrogate ID baris transaksi dan tidak pernah dijadikan target rujukan foreign key oleh tabel lain.
+  - Untuk **Tabel Dimensi Lokasi**: Menggunakan deterministic natural integer key (`location_key = location_id`).
+  - Untuk **Tabel Fakta (`trip_key`)**: Tetap menggunakan `BIGINT IDENTITY(1, 1)` karena hanya berfungsi sebagai identifier unik transaksi dan tidak dirujuk sebagai foreign key oleh tabel lain.
 
-### 2. Keterbatasan Format Parquet pada Redshift `COPY` (`xen_copy_spectrum`)
+### 2. Penanganan Nilai Default pada Perintah COPY Redshift dari Format Parquet
 
-- **Masalah:** Perintah `COPY` dari Parquet melempar error: `ERROR: DEFAULT columns are currently unsupported for this format if not included in the column list (context: inserted_at_utc)`.
-- **Akar Masalah:** Berbeda dengan CSV, pembacaan binary Parquet di Redshift tidak mengevaluasi ekspresi SQL skalar dinamis (`DEFAULT GETDATE()`) untuk kolom yang tidak terdapat di file Parquet.
-- **Solusi:** Memindahkan pembentukan timestamp audit ke engine komputasi hulu di PySpark:
+- **Konteks:** Perintah `COPY` Redshift dari file Parquet menghasilkan error saat mengevaluasi kolom dengan ekspresi `DEFAULT GETDATE()` yang tidak ada dalam file sumber.
+- **Penyebab:** Driver pembacaan Parquet di Redshift tidak mengevaluasi ekspresi SQL skalar dinamis untuk kolom yang absen pada file binary Parquet.
+- **Solusi:** Kolom timestamp audit dibentuk secara langsung pada tahap pemrosesan di PySpark:
   ```python
   F.current_timestamp().alias("inserted_at_utc")
   ```
-  Ini memberikan manfaat ganda: mengatasi error Redshift sekaligus mencatat audit lineage waktu pemrosesan Spark yang presisi.
+  Pendekatan ini mengatasi keterbatasan evaluasi default pada format Parquet sekaligus menjaga konsistensi lineage waktu pemrosesan Spark.
 
-### 3. Jaminan 100% Idempotency (Scoped Partition Replace)
+### 3. Penerapan Idempotency Melalui Partition Replacement
 
-- **Masalah:** Perintah `COPY` Redshift secara default melakukan _append_, sehingga menjalankan ulang pipeline untuk bulan yang sama berisiko menduplikasi data transaksi.
-- **Solusi:** Mengimplementasikan pola **Atomic Partition Replacement**:
+- **Konteks:** Perintah `COPY` pada Redshift secara default menambahkan data (_append_), sehingga eksekusi ulang pada periode yang sama berpotensi menduplikasi data transaksi.
+- **Solusi:** Menggunakan mekanisme penggantian partisi berbasis cakupan tanggal:
 
   ```sql
   DELETE FROM nyc_taxi_gold.fact_yellow_taxi_trip
@@ -90,28 +90,28 @@ Berikut adalah beberapa keputusan desain dan _debugging insights_ nyata yang dis
   IAM_ROLE default FORMAT AS PARQUET;
   ```
 
-  Menjalankan ulang partisi bulan yang sama 1 kali atau 100 kali menghasilkan data yang identik tanpa menyenggol partisi bulan/tahun lain.
+  Mekanisme ini memastikan bahwa eksekusi berulang pada partisi bulan yang sama menghasilkan data yang konsisten tanpa memengaruhi partisi lain.
 
-### 4. Graceful Skipping pada Data Masa Depan (`AirflowSkipException`)
+### 4. Penanganan Periode Data yang Belum Rilis (AirflowSkipException)
 
-- **Masalah:** Penjadwalan otomatis bulanan (`@monthly`) dapat memicu eksekusi untuk periode data yang belum dirilis oleh NYC TLC (menghasilkan HTTP 403/404 dari CloudFront).
-- **Solusi:** Menangkap status HTTP 403/404 dan melempar `AirflowSkipException`. Task unduhan dan seluruh task Glue/Redshift di bawahnya otomatis berubah status menjadi **Skipped** secara anggun (_graceful skip_) tanpa membuat alert panik dan tanpa membuang biaya komputasi AWS.
+- **Konteks:** Penjadwalan pipeline bulanan dapat memicu eksekusi untuk periode data yang belum dirilis oleh NYC TLC, menghasilkan respons HTTP 403 atau 404 dari CloudFront.
+- **Solusi:** Menangani respons HTTP 403/404 dengan memicu `AirflowSkipException`. Task unduhan beserta downstream task (Glue dan Redshift) akan otomatis berstatus **Skipped**, sehingga pipeline tidak mengalami failed state yang tidak perlu dan menghindari pemakaian resource komputasi tambahan.
 
 ---
 
-## 📊 Business Acceptance Queries & Insights
+## Validasi Query & Hasil Analitik
 
 <figure align="center">
   <img src="img/image.gif" alt="Dashboard BI (Streamlit)">
   <figcaption>Gambar 3. Dashboard BI Streamlit</figcaption>
 </figure>
 
-Berikut adalah verifikasi hasil query analitik nyata yang dieksekusi di Amazon Redshift Serverless:
+Contoh query agregasi analitik yang dijalankan pada Amazon Redshift Serverless:
 
 ```sql
 SET search_path TO nyc_taxi_gold;
 
--- 1. Rekapitulasi Volume Perjalanan & Pendapatan Lintas Bulan
+-- Rekapitulasi volume perjalanan dan pendapatan lintas bulan
 SELECT
     d.year,
     d.month_name,
@@ -125,64 +125,64 @@ GROUP BY d.year, d.month_name, f.source_year, f.source_month
 ORDER BY f.source_year, f.source_month;
 ```
 
-### Hasil Empiris Nyata:
+### Ringkasan Hasil Query:
 
-- **Volume Januari 2024:** 2.963.711 perjalanan valid, menghasilkan **\$79,41 Juta USD** (durasi rata-rata: 15,6 menit, jarak rata-rata: 3,23 mil).
-- **Top Revenue Zone:** **Queens — JFK Airport** (145.183 trip) menghasilkan revenue tertinggi sebesar **\$11,11 Juta USD** karena kombinasi flat-rate tarif bandara, biaya tol, dan durasi perjalanan jauh.
-- **Pola Tip Realistis:** Transaksi _Credit Card_ menghasilkan rata-rata tip **\$4,16** (~15–20% dari total tagihan), sedangkan transaksi _Cash_ tercatat **\$0,00** (tip tunai diterima langsung oleh pengemudi di luar sistem argo).
+- **Volume Januari 2024:** 2.963.711 perjalanan valid dengan total pendapatan **\$79,41 Juta USD** (rata-rata durasi: 15,6 menit, rata-rata jarak: 3,23 mil).
+- **Zona Pendapatan Tertinggi:** **Queens — JFK Airport** (145.183 trip) menghasilkan pendapatan sebesar **\$11,11 Juta USD**, dipengaruhi oleh tarif flat bandara, durasi perjalanan, dan biaya tol.
+- **Distribusi Tip:** Transaksi menggunakan _Credit Card_ mencatat rata-rata tip sebesar **\$4,16**, sedangkan transaksi _Cash_ tercatat **\$0,00** karena tip tunai tidak masuk dalam pencatatan argo taksi.
 
 ---
 
-## 📁 Struktur Direktori Repository
+## Struktur Direktori Repository
 
 ```text
 .
-├── airflow-nyc-taxi/               # Environment Airflow Lokal (Standar Docker Compose)
+├── airflow-nyc-taxi/               # Konfigurasi Airflow lokal (Docker Compose)
 │   ├── dags/
-│   │   └── nyc_taxi_pipeline.py    # DAG Otomasi End-to-End & Idempotent
+│   │   └── nyc_taxi_pipeline.py    # Definisi DAG otomatisasi end-to-end
 │   ├── docker-compose.yaml
 │   └── .env
-├── jobs/                           # Standalone PySpark Scripts untuk AWS Glue
-│   ├── silver_job.py               # Pembersihan, filtering, & audit report
-│   └── gold_job.py                 # Transformasi dimensi & fact star schema
+├── jobs/                           # Script PySpark untuk AWS Glue
+│   ├── silver_job.py               # Pembersihan, filtering, dan standarisasi
+│   └── gold_job.py                 # Pembentukan dimensi dan tabel fakta
 ├── notebooks/                      # Exploratory Data Analysis (EDA)
-│   └── 01_eda_bronze_to_silver.ipynb # Analisis empiris 2.96 juta record raw
-├── nyc_taxi_etl/                   # Package Python Modular (Core Logic)
-│   ├── bronze/                     # Streaming download, SHA-256 manifest
-│   ├── silver/                     # Standarisasi kolom, validasi fisik, null handling
-│   ├── gold/                       # Logika pembentukan dimensi & fakta Kimball
-│   └── warehouse/                  # Redshift Data API loader & query runner
+│   └── 01_eda_bronze_to_silver.ipynb # Analisis data mentah
+├── nyc_taxi_etl/                   # Package Python modular
+│   ├── bronze/                     # Download data dan pembuatan manifest
+│   ├── silver/                     # Standarisasi schema dan validasi data
+│   ├── gold/                       # Transformasi data modeling Kimball
+│   └── warehouse/                  # Interaksi dengan Redshift Data API
 ├── sql/
-│   └── redshift/                   # DDL & Query Acceptance Test
+│   └── redshift/                   # DDL dan query validasi
 │       ├── 001_create_schema.sql
 │       ├── 002_create_dimensions.sql
 │       ├── 003_create_fact.sql
 │       ├── 004_load_gold_data.sql
 │       └── validation_queries.sql
-├── tests/                          # Automated Testing Suite
+├── tests/                          # Automated test suite
 │   ├── unit/
 │   │   ├── test_config.py
 │   │   ├── test_bronze.py
 │   │   ├── test_silver.py
 │   │   └── test_gold.py
 ├── docs/
-│   └── plan.md                     # Technical roadmap & debugging knowledge base
-├── pyproject.toml                  # Manajemen dependensi modern via uv
+│   └── plan.md                     # Rencana pengembangan dan catatan teknis
+├── pyproject.toml                  # Manajemen dependensi via uv
 ├── uv.lock
 └── README.md
 ```
 
 ---
 
-## 🚀 Panduan Menjalankan Proyek (Quickstart)
+## Panduan Menjalankan Proyek
 
 ### 1. Prasyarat Sistem
 
 - Python 3.11+ dan [`uv`](https://docs.astral.sh/uv/)
 - Docker & Docker Compose
-- Akun AWS aktif dengan konfigurasi profil AWS CLI (`~/.aws/credentials`)
+- Kredensial AWS CLI terkonfigurasi (`~/.aws/credentials`)
 
-### 2. Setup Virtual Environment & Unit Testing
+### 2. Setup Environment & Pengujian Unit
 
 ```bash
 # Clone repository
@@ -193,18 +193,18 @@ cd [YOUR_REPO_NAME]
 uv sync
 uv run ruff check .
 
-# Jalankan seluruh automated unit tests (PySpark Local Fixtures)
+# Jalankan pengujian unit
 uv run pytest -v
 ```
 
 ### 3. Deploy Artifact ke AWS S3
 
 ```bash
-# Package modular Python library untuk AWS Glue
+# Package modul Python untuk dependensi AWS Glue
 zip -r nyc_taxi_etl.zip nyc_taxi_etl -x "*/__pycache__/*"
 aws s3 cp nyc_taxi_etl.zip s3://[YOUR_BUCKET_NAME]/packages/nyc_taxi_etl.zip
 
-# Upload script Glue
+# Upload script AWS Glue
 aws s3 cp jobs/silver_job.py s3://[YOUR_BUCKET_NAME]/scripts/silver_job.py
 aws s3 cp jobs/gold_job.py s3://[YOUR_BUCKET_NAME]/scripts/gold_job.py
 ```
@@ -214,21 +214,16 @@ aws s3 cp jobs/gold_job.py s3://[YOUR_BUCKET_NAME]/scripts/gold_job.py
 ```bash
 cd airflow-nyc-taxi
 
-# Konfigurasi .env (sesuaikan UID linux)
-echo -e "AIRFLOW_UID=$(id -u)\nCOMPOSE_PROJECT_NAME=nyc-taxi-aws-project-airflow" >> .env
-
-# Inisialisasi dan nyalakan container
+# Inisialisasi dan jalankan container
 docker compose run --rm airflow-init
 docker compose up -d
 ```
 
-Akses UI Airflow di `http://localhost:8080` (user: `airflow`, pass: `airflow`), konfigurasikan koneksi `aws_default`, lalu trigger DAG `nyc_taxi_end_to_end_pipeline`!
+Akses web UI Airflow melalui `http://localhost:8080`, pastikan koneksi `aws_default` telah terkonfigurasi, lalu jalankan DAG `nyc_taxi_end_to_end_pipeline`.
 
 ---
 
-## 👤 Author & Contact
+## Kontak Penulis
 
 - **Nama:** Ikhsannudin Lathief
 - **LinkedIn:** [www.linkedin.com/in/ikhsannudin-lathief/](https://www.linkedin.com/in/ikhsannudin-lathief/)
-
-> _"Building reliable, cost-effective, and fault-tolerant data pipelines through defensive engineering and sound dimensional modeling."_
