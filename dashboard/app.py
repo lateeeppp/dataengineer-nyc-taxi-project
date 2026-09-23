@@ -769,7 +769,7 @@ elif selected_page == "Payment Dynamics":
 # PAGE 4: DATA CATALOG
 # -----------------------------------------------------------------------------
 elif selected_page == "Data Catalog":
-    st.markdown('<div class="main-page-title">Lakehouse Data Catalog</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-page-title">Data Catalog &amp; Architecture</div>', unsafe_allow_html=True)
     st.markdown('<div class="section-header">Star Schema Architecture (Kimball Model)</div>', unsafe_allow_html=True)
 
     catalog_data = [
