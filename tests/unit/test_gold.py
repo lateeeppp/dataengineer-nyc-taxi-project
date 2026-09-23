@@ -60,11 +60,14 @@ def test_transform_dim_location(spark):
 
     assert transformed.count() == 2
     assert set(transformed.columns) == {
+        "location_key",
         "location_id",
         "borough",
         "zone",
         "service_zone",
     }
+    first_row = transformed.filter("location_id = 1").first()
+    assert first_row["location_key"] == 1
 
 
 def test_build_gold_fact_trips(spark):

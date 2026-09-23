@@ -75,10 +75,15 @@ def generate_dim_date(
 def transform_dim_location(silver_lookup_df: DataFrame) -> DataFrame:
     """
     Menstandarkan dataset master zona lokasi untuk nyc_taxi_gold.dim_location.
+    Menetapkan location_key bernilai persis sama dengan location_id (1 s.d. 265).
     """
-    return silver_lookup_df.select(
-        F.col("location_id").cast(T.IntegerType()),
-        F.col("borough").cast(T.StringType()),
-        F.col("zone").cast(T.StringType()),
-        F.col("service_zone").cast(T.StringType()),
-    ).dropDuplicates(["location_id"])
+    return (
+        silver_lookup_df.select(
+            F.col("location_id").cast(T.IntegerType()).alias("location_key"),
+            F.col("location_id").cast(T.IntegerType()),
+            F.col("borough").cast(T.StringType()),
+            F.col("zone").cast(T.StringType()),
+            F.col("service_zone").cast(T.StringType()),
+        )
+        .dropDuplicates(["location_id"])
+    )
