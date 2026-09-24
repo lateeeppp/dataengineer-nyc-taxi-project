@@ -103,6 +103,14 @@ Berikut adalah beberapa tantangan teknis dan keputusan desain yang diterapkan se
 - **Analisis & Keputusan:** Klausul `DEFAULT` pada DDL SQL Redshift hanya dievaluasi pada operasi `INSERT` individual, bukan saat pemuatan data massal via perintah `COPY` dari file Parquet.
 - **Solusi:** Memindahkan seluruh logika validasi dan imputasi nilai default (`NULL_IMPUTATION_DEFAULTS`) ke tahap pemrosesan hulu di PySpark (Silver & Gold). Dengan pendekatan ini, skema DDL tabel fakta di Redshift cukup menegakkan kontrak data menggunakan constraint `NOT NULL` secara murni, memastikan seluruh data yang masuk ke data warehouse bersih dan konsisten untuk kebutuhan analitik.
 
+### 6. Optimasi Performa Query dan Efisiensi Biaya Melalui Strategi SORTKEY dan DISTSTYLE
+
+- **Konteks:** Menjaga performa query analitik tetap responsif dan mengendalikan konsumsi komputasi (RPU-hours) pada Amazon Redshift Serverless dengan volume data puluhan juta baris.
+- **Analisis & Keputusan:** Pada arsitektur MPP terdistribusi, pemindaian tabel secara penuh (_full table scan_) dan perpindahan data antar-node (_network shuffling_) saat operasi `JOIN` akan memperlambat waktu respons query serta meningkatkan konsumsi RPU.
+- **Solusi:**
+  - Menerapkan **`SORTKEY`** pada kolom `pickup_date_key` di tabel fakta untuk memanfaatkan mekanisme _Zone Map Pruning_, sehingga Redshift hanya memindai blok disk 1 MB yang relevan dengan filter rentang waktu query.
+  - Menerapkan **`DISTSTYLE ALL`** pada tabel-tabel dimensi untuk menduplikasi data rujukan ke setiap _compute slice_, memastikan operasi `JOIN` dengan tabel fakta berjalan secara lokal (_colocated join_) tanpa _network data redistribution_.
+
 ---
 
 ## Validasi Query & Hasil Analitik
